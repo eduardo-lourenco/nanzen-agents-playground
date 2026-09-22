@@ -11,7 +11,7 @@ import logging
 
 from smolagents import CodeAgent
 
-from challenge.tools import CSVReaderTool, PDFReportTool
+from challenge.tools import BillingSummaryTool, CSVReaderTool, PDFReportTool
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +63,8 @@ class ActorAgent:
         self.name = name
         self.role = role
 
-        # Default tools: CSV reader + PDF report. Additional tools can be passed.
-        default_tools = [CSVReaderTool(), PDFReportTool()]
+        # Default tools: context retrieval, deterministic billing reconciliation, and reporting.
+        default_tools = [CSVReaderTool(), BillingSummaryTool(), PDFReportTool()]
         all_tools = default_tools + (tools or [])
 
         self.agent = CodeAgent(

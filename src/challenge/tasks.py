@@ -16,12 +16,14 @@ TASKS: list[dict] = [
         "role": "Billing and payment analysis specialist",
         "prompt": (
             "Analyze the billing history for account MERID-001 (Meridian Health).\n"
-            "1. Read the billing data and summarize total invoiced vs total paid.\n"
-            "2. Identify any late payments or outstanding invoices.\n"
-            "3. Create a PDF report called 'billing_summary_merid001.pdf' with:\n"
-            "   - A summary paragraph of the billing relationship\n"
-            "   - A table of all invoices with their status and amounts\n"
-            "   - Any notable findings (disputes, credits, late payments)"
+            "1. Call reconcile_billing(account_id='MERID-001') and use its invoice rows and "
+            "figures directly. Do not recompute billing totals.\n"
+            "2. Create a PDF report called 'billing_summary_merid001.pdf' with:\n"
+            "   - A concise billing summary that states the data cutoff and that amounts are "
+            "gross and VAT-inclusive\n"
+            "   - A table containing every reconciled invoice, including status and amounts\n"
+            "   - Separate overdue and not-yet-due open balances\n"
+            "   - Any notable findings (disputes, credits, late payments) described factually in a structured readible way"
         ),
     },
     {
