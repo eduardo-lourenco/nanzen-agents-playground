@@ -32,16 +32,21 @@ def read_csv_source(
     source: str,
     account_id: str | None = None,
     limit: int = 50,
-) -> list[dict[str, str]]:
-    """Read rows from a CSV data source, optionally filtering by account_id."""
+    offset: int = 0,
+) -> dict[str, object]:
+    """Read one page from a CSV data source, optionally filtering by account ID."""
     if source not in DATA_SOURCES:
         raise ValueError(f"Unknown source '{source}'. Available: {sorted(DATA_SOURCES.keys())}")
+    if limit <= 0:
+        raise ValueError("limit must be greater than zero")
+    if offset < 0:
+        raise ValueError("offset must be greater than or equal to zero")
 
     csv_path = DATA_DIR / DATA_SOURCES[source]
     if not csv_path.exists():
         raise FileNotFoundError(f"Data file not found: {csv_path}")
 
-    rows: list[dict[str, str]] = []
+    matching_rows: list[dict[str, str]] = []
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -49,11 +54,20 @@ def read_csv_source(
             if account_id and "account_id" in row:
                 if row["account_id"] != account_id:
                     continue
-            rows.append(dict(row))
-            if len(rows) >= limit:
-                break
+            matching_rows.append(dict(row))
 
-    return rows
+    rows = matching_rows[offset : offset + limit]
+    next_offset = offset + len(rows)
+    has_more = next_offset < len(matching_rows)
+
+    return {
+        "rows": rows,
+        "offset": offset,
+        "returned": len(rows),
+        "total_matching": len(matching_rows),
+        "has_more": has_more,
+        "next_offset": next_offset if has_more else None,
+    }
 
 
 class CSVReaderTool(Tool):
@@ -61,10 +75,12 @@ class CSVReaderTool(Tool):
 
     name = "read_context"
     description = (
-        "Read data from the shared context. Returns rows from a CSV data source.\n"
+        "Read one structured page from the shared CSV context.\n"
         "Available sources: accounts, billing, product_usage, support_tickets, "
         "crm_interactions, emails, contracts, purchase_orders.\n"
-        "Use account_id to filter rows for a specific account (e.g. 'MERID-001')."
+        "Use account_id to filter rows for a specific account (e.g. 'MERID-001'). "
+        "The result includes rows, total_matching, has_more, and next_offset. Fetch pages "
+        "until has_more is false whenever a task requires complete data."
     )
     inputs = {
         "source": {
@@ -81,34 +97,29 @@ class CSVReaderTool(Tool):
         },
         "limit": {
             "type": "integer",
-            "description": "Max rows to return. Default: 50.",
+            "description": "Maximum rows to return. Must be greater than zero. Default: 50.",
+            "nullable": True,
+        },
+        "offset": {
+            "type": "integer",
+            "description": "Number of matching rows to skip. Must be zero or greater. Default: 0.",
             "nullable": True,
         },
     }
-    output_type = "string"
+    output_type = "object"
 
     def forward(
         self,
         source: str,
         account_id: str | None = None,
         limit: int | None = None,
-    ) -> str:
+        offset: int | None = None,
+    ) -> dict[str, object]:
         effective_limit = limit if limit is not None else 50
-        try:
-            rows = read_csv_source(source, account_id=account_id, limit=effective_limit)
-        except (ValueError, FileNotFoundError) as exc:
-            return f"ERROR: {exc}"
-
-        if not rows:
-            return f"No rows found in '{source}'" + (
-                f" for account_id='{account_id}'" if account_id else ""
-            )
-
-        # Format as a readable text table
-        headers = list(rows[0].keys())
-        lines = [" | ".join(headers)]
-        lines.append("-+-".join("-" * len(h) for h in headers))
-        for row in rows:
-            lines.append(" | ".join(row.get(h, "") for h in headers))
-
-        return f"({len(rows)} rows from '{source}')\n" + "\n".join(lines)
+        effective_offset = offset if offset is not None else 0
+        return read_csv_source(
+            source,
+            account_id=account_id,
+            limit=effective_limit,
+            offset=effective_offset,
+        )
