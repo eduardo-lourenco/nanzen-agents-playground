@@ -84,9 +84,43 @@ class TestBillingReconciliation:
         )
         assert result["summary"]["open_balance"] == "37167.16"
 
+    def test_credit_notes_are_linked_to_their_reduced_invoices(self):
+        """Formal credits are returned separately from invoice totals and exceptions."""
+        result = reconcile_billing("MERID-001")
+        credits = {item["credit_note_id"]: item for item in result["credits"]}
+
+        assert credits["CN-2025-MH-001"] == {
+            "credit_note_id": "CN-2025-MH-001",
+            "amount": "3600.00",
+            "issued_at": "2025-01-17",
+            "applied_invoice_id": "INV-2025-MH-015",
+            "applied_at": "2025-02-01",
+            "status": "applied",
+        }
+        assert credits["CN-2025-MH-002"]["amount"] == "929.18"
+        assert credits["CN-2025-MH-002"]["applied_invoice_id"] == "INV-2026-MH-027"
+        assert credits["CN-2025-MH-002"]["applied_at"] == "2026-02-01"
+
+    def test_resolved_dispute_has_no_amount_change(self):
+        """Invoice corrections are separate from amount-changing financial adjustments."""
+        result = reconcile_billing("MERID-001")
+
+        assert result["disputes"] == [
+            {
+                "dispute_id": "DISP-2024-MH-001",
+                "invoice_id": "INV-2024-MH-013",
+                "opened_at": "2024-12-09",
+                "resolved_at": "2024-12-09",
+                "status": "resolved",
+                "corrected": True,
+                "amount_changed": False,
+            }
+        ]
+
     def test_billing_task_uses_reconciliation_output(self):
         """The billing task directs the agent to use the deterministic tool."""
         task = next(task for task in TASKS if task["name"] == "billing_summary")
 
         assert "reconcile_billing" in task["prompt"]
         assert "billing_summary_merid001.pdf" in task["prompt"]
+        assert "Returned credits, disputes, and exceptions" in task["prompt"]

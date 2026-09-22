@@ -23,7 +23,7 @@ TASKS: list[dict] = [
             "gross and VAT-inclusive\n"
             "   - A table containing every reconciled invoice, including status and amounts\n"
             "   - Separate overdue and not-yet-due open balances\n"
-            "   - Any notable findings (disputes, credits, late payments) described factually in a structured readible way"
+            "   - Returned credits, disputes, and exceptions as factual notable findings"
         ),
     },
     {

@@ -75,6 +75,8 @@ def reconcile_billing(account_id: str) -> dict[str, object]:
 
     invoices: list[dict[str, object]] = []
     exceptions: list[dict[str, str]] = []
+    invoice_amounts: dict[str, Decimal] = {}
+    invoice_credit_refs: dict[str, str] = {}
     applied_payments = Decimal("0")
     gross_invoiced = Decimal("0")
 
@@ -83,6 +85,9 @@ def reconcile_billing(account_id: str) -> dict[str, object]:
         issuances = [row for row in events if row["event_type"] == "invoice_issued"]
         canonical_issuance = issuances[0]
         issued_amount = _amount(canonical_issuance)
+        invoice_amounts[invoice_id] = issued_amount
+        if canonical_issuance["credit_note_ref"]:
+            invoice_credit_refs[canonical_issuance["credit_note_ref"]] = invoice_id
         gross_invoiced += issued_amount
 
         issuance_amounts = {_amount(row) for row in issuances}
@@ -245,6 +250,80 @@ def reconcile_billing(account_id: str) -> dict[str, object]:
                 }
             )
 
+    credits: list[dict[str, object]] = []
+    for credit_note in sorted(
+        (row for row in relevant_rows if row["event_type"] == "credit_note_issued"),
+        key=_event_time,
+    ):
+        credit_note_id = credit_note["invoice_id"]
+        applied_invoice_id = invoice_credit_refs.get(credit_note_id)
+        applied_event = next(
+            (
+                row
+                for row in relevant_rows
+                if row["event_type"] == "credit_applied" and row["invoice_id"] == credit_note_id
+            ),
+            None,
+        )
+        credits.append(
+            {
+                "credit_note_id": credit_note_id,
+                "amount": _money(abs(_amount(credit_note))),
+                "issued_at": credit_note["timestamp"][:10],
+                "applied_invoice_id": applied_invoice_id,
+                "applied_at": (
+                    applied_event["timestamp"][:10]
+                    if applied_event
+                    else invoices[
+                        next(
+                            index
+                            for index, invoice in enumerate(invoices)
+                            if invoice["invoice_id"] == applied_invoice_id
+                        )
+                    ]["invoice_date"]
+                    if applied_invoice_id
+                    else None
+                ),
+                "status": "applied" if applied_invoice_id else "unapplied",
+            }
+        )
+
+    disputes: list[dict[str, object]] = []
+    dispute_events = [
+        row
+        for row in relevant_rows
+        if row["event_type"] in {"dispute_opened", "dispute_resolved"} and row["invoice_id"]
+    ]
+    disputes_by_id: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for event in dispute_events:
+        disputes_by_id[event["dispute_id"] or event["invoice_id"]].append(event)
+
+    for dispute_id, events in sorted(disputes_by_id.items()):
+        events.sort(key=_event_time)
+        invoice_id = events[0]["invoice_id"]
+        corrections = [
+            row
+            for row in events_by_invoice[invoice_id]
+            if row["event_type"] == "invoice_corrected"
+        ]
+        amount_changed = any(
+            _amount(correction) != invoice_amounts[invoice_id] for correction in corrections
+        )
+        resolution = next(
+            (event for event in events if event["event_type"] == "dispute_resolved"), None
+        )
+        disputes.append(
+            {
+                "dispute_id": dispute_id,
+                "invoice_id": invoice_id,
+                "opened_at": events[0]["timestamp"][:10],
+                "resolved_at": resolution["timestamp"][:10] if resolution else None,
+                "status": "resolved" if resolution else "open",
+                "corrected": bool(corrections),
+                "amount_changed": amount_changed,
+            }
+        )
+
     open_balance = sum((Decimal(invoice["balance"]) for invoice in invoices), Decimal("0"))
     paid_invoices = [invoice for invoice in invoices if invoice["status"].startswith("paid")]
     overdue_invoices = [invoice for invoice in invoices if invoice["status"] == "overdue"]
@@ -266,6 +345,8 @@ def reconcile_billing(account_id: str) -> dict[str, object]:
             "not_due_invoices": len(not_due_invoices),
         },
         "invoices": invoices,
+        "credits": credits,
+        "disputes": disputes,
         "exceptions": exceptions,
     }
 
