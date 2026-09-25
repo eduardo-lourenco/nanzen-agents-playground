@@ -25,6 +25,7 @@ DATA_SOURCES: dict[str, str] = {
     "emails": "emails.csv",
     "contracts": "contracts.csv",
     "purchase_orders": "purchase_orders.csv",
+    "mailbox_export": "mailbox_export.csv",
 }
 
 
@@ -46,7 +47,8 @@ def read_csv_source(
     if not csv_path.exists():
         raise FileNotFoundError(f"Data file not found: {csv_path}")
 
-    matching_rows: list[dict[str, str]] = []
+    rows: list[dict[str, str]] = []
+    total_matching = 0
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -54,17 +56,18 @@ def read_csv_source(
             if account_id and "account_id" in row:
                 if row["account_id"] != account_id:
                     continue
-            matching_rows.append(dict(row))
+            if offset <= total_matching < offset + limit:
+                rows.append(dict(row))
+            total_matching += 1
 
-    rows = matching_rows[offset : offset + limit]
     next_offset = offset + len(rows)
-    has_more = next_offset < len(matching_rows)
+    has_more = next_offset < total_matching
 
     return {
         "rows": rows,
         "offset": offset,
         "returned": len(rows),
-        "total_matching": len(matching_rows),
+        "total_matching": total_matching,
         "has_more": has_more,
         "next_offset": next_offset if has_more else None,
     }
@@ -77,7 +80,7 @@ class CSVReaderTool(Tool):
     description = (
         "Read one structured page from the shared CSV context.\n"
         "Available sources: accounts, billing, product_usage, support_tickets, "
-        "crm_interactions, emails, contracts, purchase_orders.\n"
+        "crm_interactions, emails, contracts, purchase_orders, mailbox_export.\n"
         "Use account_id to filter rows for a specific account (e.g. 'MERID-001'). "
         "The result includes rows, total_matching, has_more, and next_offset. Fetch pages "
         "until has_more is false whenever a task requires complete data."
@@ -87,7 +90,8 @@ class CSVReaderTool(Tool):
             "type": "string",
             "description": (
                 "The data source to read. One of: accounts, billing, product_usage, "
-                "support_tickets, crm_interactions, emails, contracts, purchase_orders."
+                "support_tickets, crm_interactions, emails, contracts, purchase_orders, "
+                "mailbox_export."
             ),
         },
         "account_id": {

@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +70,10 @@ def build_pdf(
     body_style = ParagraphStyle(
         "DocBody", parent=styles["Normal"], fontSize=10, leading=14, spaceAfter=8
     )
+    cell_style = ParagraphStyle("TableCell", parent=styles["Normal"], fontSize=8, leading=10)
+    header_cell_style = ParagraphStyle(
+        "TableHeader", parent=cell_style, fontName="Helvetica-Bold", textColor=colors.white
+    )
 
     story: list[Any] = [Paragraph(title, title_style), Spacer(1, 12)]
 
@@ -86,7 +91,40 @@ def build_pdf(
             rows = section.get("rows", [])
             table_data = [headers, *rows] if headers else rows
             if table_data:
-                t = Table(table_data, repeatRows=1)
+                column_count = len(table_data[0])
+                if not column_count or any(len(row) != column_count for row in table_data):
+                    raise ValueError("Table rows must have the same nonzero number of columns")
+                # SimpleDocTemplate's frame reserves 6pt on each side within doc.width.
+                available_width = doc.width - 12
+                minimum_column_width = 24
+                if column_count * minimum_column_width > available_width:
+                    raise ValueError("Table has too many columns to fit on the page")
+                widths = [
+                    min(32, max(8, max(len(str(row[index])) for row in table_data)))
+                    for index in range(column_count)
+                ]
+                total_weight = sum(widths)
+                remaining_width = available_width - column_count * minimum_column_width
+                column_widths = [
+                    minimum_column_width + remaining_width * weight / total_weight
+                    for weight in widths
+                ]
+                wrapped_data = [
+                    [
+                        Paragraph(
+                            escape(str(cell)).replace("\n", "<br/>"),
+                            header_cell_style if headers and row_index == 0 else cell_style,
+                        )
+                        for cell in row
+                    ]
+                    for row_index, row in enumerate(table_data)
+                ]
+                t = Table(
+                    wrapped_data,
+                    colWidths=column_widths,
+                    repeatRows=1 if headers else 0,
+                    splitInRow=1,
+                )
                 t.setStyle(
                     TableStyle(
                         [

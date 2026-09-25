@@ -5,7 +5,7 @@ import json
 import pytest
 
 from challenge.tools.csv_reader import CSVReaderTool, read_csv_source
-from challenge.tools.pdf_report import PDFReportTool
+from challenge.tools.pdf_report import PDFReportTool, build_pdf
 
 
 class TestCSVReader:
@@ -98,6 +98,51 @@ class TestCSVReader:
 
 
 class TestPDFReport:
+    def test_wide_table_fits_printable_width_and_wraps_cells(self, monkeypatch):
+        """Long values in multiple columns must not push table geometry off A4."""
+        import reportlab.platypus as platypus
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import cm
+        from reportlab.platypus import Paragraph, Table
+
+        tables = []
+        input_cells = []
+
+        class TrackingTable(Table):
+            def __init__(self, data, *args, **kwargs):
+                input_cells.extend(cell for row in data for cell in row)
+                super().__init__(data, *args, **kwargs)
+                tables.append(self)
+
+        monkeypatch.setattr(platypus, "Table", TrackingTable)
+        sections = [
+            {
+                "type": "table",
+                "headers": [f"Column {index}" for index in range(8)],
+                "rows": [["An unusually long value " * 10 + "<literal> & text" for _ in range(8)]],
+            }
+        ]
+        pdf = build_pdf("Wide table", sections)
+
+        assert pdf.startswith(b"%PDF-")
+        assert sum(tables[0]._colWidths) <= A4[0] - 5 * cm - 12
+        assert all(isinstance(cell, Paragraph) for cell in input_cells)
+
+    def test_tall_table_row_splits_across_pages(self):
+        """A long cell must not fail when its row exceeds the page height."""
+        pdf = build_pdf(
+            "Long table",
+            [
+                {
+                    "type": "table",
+                    "headers": ["Item", "Detail"],
+                    "rows": [["A", "Long explanation with several words. " * 250]],
+                }
+            ],
+        )
+        assert pdf.startswith(b"%PDF-")
+        assert pdf.count(b"/Type /Page") >= 3  # /Pages plus at least two pages
+
     def test_create_simple_report(self, tmp_path):
         """PDFReportTool creates a PDF file."""
         tool = PDFReportTool()

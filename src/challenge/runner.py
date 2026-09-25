@@ -68,6 +68,7 @@ def run_task(task_def: dict) -> dict:
         name=task_def["agent_name"],
         role=task_def["role"],
         model=model,
+        max_steps=task_def.get("max_steps", 15),
     )
 
     try:

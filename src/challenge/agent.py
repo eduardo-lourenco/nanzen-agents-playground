@@ -11,7 +11,13 @@ import logging
 
 from smolagents import CodeAgent
 
-from challenge.tools import BillingSummaryTool, CSVReaderTool, PDFReportTool
+from challenge.tools import (
+    BillingSummaryTool,
+    CSVReaderTool,
+    MailboxRiskScanTool,
+    MailboxThreadTool,
+    PDFReportTool,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +40,7 @@ You have access to CSV data via the `read_context` tool. Available sources:
   - emails: email communications
   - contracts: pricing and contract terms
   - purchase_orders: purchase order records
+  - mailbox_export: large email mailbox (use scan_renewal_leads for risk discovery)
 
 ## How to work
 1. Read the task carefully.
@@ -64,7 +71,13 @@ class ActorAgent:
         self.role = role
 
         # Default tools: context retrieval, deterministic billing reconciliation, and reporting.
-        default_tools = [CSVReaderTool(), BillingSummaryTool(), PDFReportTool()]
+        default_tools = [
+            CSVReaderTool(),
+            BillingSummaryTool(),
+            MailboxRiskScanTool(),
+            MailboxThreadTool(),
+            PDFReportTool(),
+        ]
         all_tools = default_tools + (tools or [])
 
         self.agent = CodeAgent(
